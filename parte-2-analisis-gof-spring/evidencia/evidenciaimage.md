@@ -104,4 +104,8 @@ Investigación de la infraestructura de eventos desacoplada en el módulo `sprin
 
 ---
 
+## 5. Checkpoint Paso 14: Vista Final del Repositorio en GitHub
 
+Captura de la vista principal del repositorio en GitHub (`Karen-Chiquillo/chiquillo-post1-u1`) donde se comprueba la estructura completa de carpetas y el `README.md` renderizado correctamente con las tablas de ambas partes.
+
+![Vista final del repositorio en GitHub](imagenes/13-vista-repo-github-final.png)
