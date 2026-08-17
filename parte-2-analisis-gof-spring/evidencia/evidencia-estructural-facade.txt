@@ -1,0 +1,182 @@
+===============================================================================
+EVIDENCIA 2
+===============================================================================
+Patrón: Facade (Estructural)
+Módulo: spring-jdbc
+Clase Analizada: org.springframework.jdbc.core.JdbcTemplate
+Interfaz de Fachada: org.springframework.jdbc.core.JdbcOperations
+Repositorio Oficial: https://github.com/spring-projects/spring-framework
+Ruta en Repositorio: spring-jdbc/src/main/java/org/springframework/jdbc/core/JdbcTemplate.java
+===============================================================================
+
+Se analiza la clase 'JdbcTemplate' perteneciente al módulo 'spring-jdbc' dentro
+de Spring Framework. Esta clase asume formalmente el rol de 'Facade' (Fachada)
+en el catálogo estructural de GoF, proveyendo una interfaz simplificada, de alto
+nivel y unificada sobre el subsistema de bajo nivel de Java Database Connectivity (JDBC).
+
+El uso directo del API nativo JDBC ('java.sql') impone a los desarrolladores la
+gestión manual de flujos de código repetitivos ('boilerplate') altamente propensos a
+fallos: apertura y cierre de conexiones ('Connection'), creación y tipado de sentencias
+('PreparedStatement'), iteración de cursores ('ResultSet') y captura de excepciones
+comprobadas ('SQLException'). Omitir el cierre manual en bloques 'finally' causa fugas
+de memoria y agotamiento del pool de conexiones. 'JdbcTemplate' resuelve esta
+problemática centralizando todo el ciclo de vida de la infraestructura JDBC detrás
+de métodos declarativos ('execute', 'query', 'update'), liberando al cliente de la
+gestión de bajo nivel.
+
+Principios SOLID Respaldados:
+- Single Responsibility Principle (SRP): Separa la responsabilidad de gestión de
+  infraestructura y ciclo de vida de recursos JDBC de la lógica de negocio y persistencia
+  propia del dominio.
+- Dependency Inversion Principle (DIP): Los componentes de persistencia (como DAOs o
+  Repositories) dependen de la abstracción 'JdbcOperations' y no de implementaciones
+  concretas de controladores JDBC.
+- Open/Closed Principle (OCP): La fachada permite extender las estrategias de mapeo
+  y transformación de datos mediante interfaces funcionales ('RowMapper',
+  'ResultSetExtractor', 'PreparedStatementCreator') sin modificar el núcleo de 'JdbcTemplate'.
+
+
+===============================================================================
+2. EXTRACTO DEL CÓDIGO FUENTE CON ANÁLISIS POR FRAGMENTO
+===============================================================================
+
+-------------------------------------------------------------------------------
+FRAGMENTO 1: Declaración de la Fachada e Implementación del Contrato
+Líneas de Referencia: 165-184
+-------------------------------------------------------------------------------
+/*
+ * 'JdbcTemplate' hereda de 'JdbcAccessor' (responsable de la configuración del DataSource
+ * y traducción de excepciones) e implementa la interfaz 'JdbcOperations'. Esta interfaz
+ * formaliza el contrato abstracto de la fachada, ocultando la complejidad del API
+ * de bajo nivel 'java.sql' a los consumidores.
+ */
+public class JdbcTemplate extends JdbcAccessor implements JdbcOperations {
+
+	private boolean resultsMapCaseInsensitive = false;
+
+	/**
+	 * Construct a new JdbcTemplate for bean usage.
+	 * <p>Note: The DataSource has to be set before using the instance.
+	 * @see #setDataSource
+	 */
+	public JdbcTemplate() {
+	}
+
+	/**
+	 * Construct a new JdbcTemplate, given a DataSource to obtain connections from.
+	 * <p>Note: This will not trigger initialization of the exception translator.
+	 * @param dataSource the JDBC DataSource to obtain connections from
+	 */
+	public JdbcTemplate(DataSource dataSource) {
+		setDataSource(dataSource);
+		afterPropertiesSet();
+	}
+
+	/**
+	 * Construct a new JdbcTemplate, given a DataSource to obtain connections from.
+	 * @param dataSource the JDBC DataSource to obtain connections from
+	 * @param lazyInit whether to lazily initialize the SQLExceptionTranslator
+	 */
+	public JdbcTemplate(DataSource dataSource, boolean lazyInit) {
+		setDataSource(dataSource);
+		setLazyInit(lazyInit);
+		afterPropertiesSet();
+	}
+
+
+-------------------------------------------------------------------------------
+FRAGMENTO 2: Encapsulamiento del Flujo de Ejecución e Infraestructura JDBC
+Líneas de Referencia: 404-435
+-------------------------------------------------------------------------------
+/*
+ * Constituye el método central donde la fachada absorbe la complejidad operativa:
+ * adquiere la conexión desde el DataSource, crea el Statement, delega el paso
+ * variable al callback ('action.doInStatement') y asegura la liberación determinista
+ * de recursos en el bloque 'finally', traduciendo excepciones comprobadas de JDBC.
+ */
+	private <T extends @Nullable Object> T execute(StatementCallback<T> action, boolean closeResources) throws DataAccessException {
+		Assert.notNull(action, "Callback object must not be null");
+
+		Connection con = DataSourceUtils.getConnection(obtainDataSource());
+		Statement stmt = null;
+		try {
+			stmt = con.createStatement();
+			applyStatementSettings(stmt);
+			T result = action.doInStatement(stmt);
+			handleWarnings(stmt);
+			return result;
+		}
+		catch (SQLException ex) {
+			if (stmt != null) {
+				handleWarnings(stmt, ex);
+			}
+			String sql = getSql(action);
+			JdbcUtils.closeStatement(stmt);
+			stmt = null;
+			DataSourceUtils.releaseConnection(con, getDataSource());
+			con = null;
+			throw translateException("StatementCallback", sql, ex);
+		}
+		finally {
+			if (closeResources) {
+				JdbcUtils.closeStatement(stmt);
+				DataSourceUtils.releaseConnection(con, getDataSource());
+			}
+		}
+	}
+
+
+-------------------------------------------------------------------------------
+FRAGMENTO 3: Fachada de Consulta con Extracción de Resultados (Query Facade)
+Líneas de Referencia: 464 -484
+-------------------------------------------------------------------------------
+/*
+ * Simplifica la ejecución de sentencias 'SELECT'. La clase interna 'QueryStatementCallback'
+ * gestiona internamente el 'ResultSet' y garantiza su cierre inmediato, abstrayendo
+ * al llamador de interactuar directamente con cursores de base de datos.
+ */
+	@Override
+	public <T extends @Nullable Object> T query(String sql, ResultSetExtractor<T> rse) throws DataAccessException {
+		Assert.notNull(sql, "SQL must not be null");
+		Assert.notNull(rse, "ResultSetExtractor must not be null");
+		if (logger.isDebugEnabled()) {
+			logger.debug("Executing SQL query [" + sql + "]");
+		}
+
+		// Callback to execute the query.
+		class QueryStatementCallback implements StatementCallback<T>, SqlProvider {
+			@Override
+			public T doInStatement(Statement stmt) throws SQLException {
+				ResultSet rs = null;
+				try {
+					rs = stmt.executeQuery(sql);
+					return rse.extractData(rs);
+				}
+				finally {
+					JdbcUtils.closeResultSet(rs);
+				}
+			}
+			@Override
+			public String getSql() {
+				return sql;
+			}
+		}
+
+		return execute(new QueryStatementCallback(), true);
+	}
+
+
+-------------------------------------------------------------------------------
+FRAGMENTO 4: Fachada de Alto Nivel con Mapeo Registro a Registro
+Líneas de Referencia: 499-502
+-------------------------------------------------------------------------------
+/*
+ * Representa la abstracción de mayor nivel para el cliente. Transforma el contrato
+ * 'RowMapper' en un 'RowMapperResultSetExtractor', permitiendo que el desarrollador
+ * defina únicamente la conversión de una fila a entidad de dominio, sin controlar
+ * bucles de cursor ni conteos manuales.
+ */
+	@Override
+	public <T extends @Nullable Object> List<T> query(String sql, RowMapper<T> rowMapper) throws DataAccessException {
+		return result(query(sql, new RowMapperResultSetExtractor<>(rowMapper, 0, this.maxRows)));
+	}

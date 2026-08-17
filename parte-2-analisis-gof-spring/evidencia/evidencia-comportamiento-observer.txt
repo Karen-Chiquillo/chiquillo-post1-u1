@@ -1,0 +1,99 @@
+===============================================================================
+EVIDENCIA 3
+===============================================================================
+Patrón: Observer (Comportamiento)
+Módulo: spring-context
+Clase/Interfaz Analizada: org.springframework.context.ApplicationListener
+Sujeto/Emisor (Multicaster): org.springframework.context.event.SimpleApplicationEventMulticaster
+Repositorio Oficial: https://github.com/spring-projects/spring-framework
+Ruta en Repositorio: spring-context/src/main/java/org/springframework/context/ApplicationListener.java
+===============================================================================
+
+Se analiza la interfaz funcional 'ApplicationListener' y la infraestructura de eventos
+del módulo 'spring-context'. Esta arquitectura implementa formalmente el patrón
+'Observer' de GoF, estableciendo un mecanismo de publicación/suscripción desacoplado
+dentro del ciclo de vida de la aplicación.
+
+En sistemas empresariales, un suceso en un módulo (por ejemplo, el registro de una
+orden o la autenticación de un usuario) suele requerir múltiples acciones secundarias
+(enviar correos, auditar logs, recalcular inventarios). Invocar directamente dichos
+servicios desde la lógica principal genera un alto acoplamiento y viola la modularidad.
+El patrón Observer en Spring resuelve este problema permitiendo que el emisor publique
+un 'ApplicationEvent' sin conocer quién lo procesará; los observadores registrados
+('ApplicationListener') reaccionan de forma autónoma y asíncrona/síncrona.
+
+Principios SOLID Respaldados:
+- Single Responsibility Principle (SRP): El emisor del evento únicamente se enfoca
+  en ejecutar su lógica de negocio y emitir la notificación, delegando los efectos
+  secundarios a escuchadores independientes.
+- Open/Closed Principle (OCP): Es posible agregar nuevos manejadores o reacciones
+  ante un suceso creando nuevos componentes 'ApplicationListener' o anotando métodos
+  con '@EventListener', sin tocar el código que originó el evento.
+- Dependency Inversion Principle (DIP): Los componentes publicadores y escuchadores
+  interactúan a través de la abstracción 'ApplicationEvent' y la interfaz genérica
+  'ApplicationListener<E>', eliminando dependencias directas entre clases concretas.
+
+
+===============================================================================
+2. EXTRACTO DEL CÓDIGO FUENTE CON ANÁLISIS POR FRAGMENTO
+===============================================================================
+
+-------------------------------------------------------------------------------
+FRAGMENTO 1: Declaración del Observador Genérico (Observer Contract)
+Archivo: org.springframework.context.ApplicationListener
+Líneas de Referencia: 42- 76
+-------------------------------------------------------------------------------
+/*
+ * 'ApplicationListener' representa el contrato del observador en GoF. Al ser una
+ * interfaz funcional genérica parametrizada con '<E extends ApplicationEvent>',
+ * garantiza la seguridad de tipos, permitiendo que cada observador se suscriba
+ * exclusivamente al tipo específico de evento que le interesa procesar.
+ */
+package org.springframework.context;
+
+import java.util.EventListener;
+
+@FunctionalInterface
+public interface ApplicationListener<E extends ApplicationEvent> extends EventListener {
+
+	/**
+	 * Handle an application event.
+	 * @param event the event to respond to
+	 */
+	void onApplicationEvent(E event);
+
+	/**
+	 * Create a new ApplicationListener for the given consumer.
+	 * @param consumer the event consumer to delegate to
+	 * @since 5.3
+	 */
+	static <T extends ApplicationEvent> ApplicationListener<T> forPayload(Consumer<T> consumer) {
+		return event -> consumer.accept(event.getPayload());
+	}
+
+}
+
+
+-------------------------------------------------------------------------------
+FRAGMENTO 2: Notificación y Despacho a los Observadores (Subject Multicasting)
+Archivo: org.springframework.context.event.SimpleApplicationEventMulticaster
+Líneas de Referencia: 136-154
+-------------------------------------------------------------------------------
+/*
+ * 'SimpleApplicationEventMulticaster' actúa como el 'Subject' (Sujeto concreto).
+ * Itera sobre la colección de observadores registrados, evalúa si coinciden con
+ * el tipo de evento emitido y ejecuta la notificación polimórfica 'invokeListener'.
+ */
+	@Override
+	public void multicastEvent(final ApplicationEvent event, @Nullable ResolvableType eventType) {
+		ResolvableType type = (eventType != null ? eventType : ResolvableType.forInstance(event));
+		Executor executor = getTaskExecutor();
+		for (ApplicationListener<?> listener : getApplicationListeners(event, type)) {
+			if (executor != null) {
+				executor.execute(() -> invokeListener(listener, event));
+			}
+			else {
+				invokeListener(listener, event);
+			}
+		}
+	}

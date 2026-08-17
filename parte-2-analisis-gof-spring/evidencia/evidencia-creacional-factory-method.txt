@@ -1,0 +1,144 @@
+===============================================================================
+EVIDENCIA 1
+===============================================================================
+Patrón: Factory Method (Creacional)
+Módulo: spring-beans
+Clase/Interfaz Analizada: org.springframework.beans.factory.BeanFactory
+Repositorio Oficial: https://github.com/spring-projects/spring-framework
+Ruta en Repositorio: spring-beans/src/main/java/org/springframework/beans/factory/BeanFactory.java
+===============================================================================
+
+Se analiza la interfaz 'BeanFactory' perteneciente al módulo 'spring-beans' dentro
+de la arquitectura de Spring Framework. Esta interfaz asume formalmente el rol
+de 'Creator' abstracto en el patrón Factory Method, estableciendo el contrato que
+desacopla el consumo de componentes de su proceso de instanciación.
+
+En arquitecturas orientadas a objetos tradicionales, el uso directo del operador
+'new' genera un acoplamiento rígido hacia clases concretas, dispersa la lógica
+de configuración y dificulta la sustitución de implementaciones. 'BeanFactory'
+resuelve esta problemática encapsulando la creación de objetos detrás de métodos
+de fábrica polimórficos ('getBean'), permitiendo que el contenedor gestione el
+ciclo de vida, configure dependencias y determine la estrategia de instanciación
+(Singleton o Prototype) de forma transparente para el cliente.
+
+Principios SOLID Respaldados:
+- Dependency Inversion Principle (DIP): Los módulos de alto nivel dependen de
+  la abstracción 'BeanFactory' y de las interfaces de negocio, no de clases
+  concretas ni de constructores directos.
+- Single Responsibility Principle (SRP): La responsabilidad de instanciación,
+  inyección y resolución de dependencias se delega enteramente al contenedor,
+  liberando a las clases del dominio de tareas de infraestructura.
+- Open/Closed Principle (OCP): Se pueden introducir nuevas implementaciones de
+  un bean en el contenedor sin alterar el código que invoca los métodos de fábrica.
+
+
+===============================================================================
+2. EXTRACTO DEL CÓDIGO FUENTE CON ANÁLISIS POR FRAGMENTO
+===============================================================================
+
+-------------------------------------------------------------------------------
+FRAGMENTO 1: Declaración de la Interfaz Fábrica y Constantes de Desreferenciación
+Líneas de Referencia: 123-138
+-------------------------------------------------------------------------------
+/*
+ * La interfaz 'BeanFactory' define la raíz del contenedor IoC de Spring. La constante
+ * FACTORY_BEAN_PREFIX ("&") se utiliza para distinguir entre el producto creado y
+ * el objeto fábrica mismo (FactoryBean), permitiendo al cliente acceder a la fábrica
+ * subyacente cuando se requiere control explícito sobre la creación de objetos complejos.
+ */
+public interface BeanFactory {
+
+	/**
+	 * Used to dereference a {@link FactoryBean} instance and distinguish it from
+	 * beans <i>created</i> by the FactoryBean. For example, if the bean named
+	 * {@code myJndiObject} is a FactoryBean, getting {@code &myJndiObject}
+	 * will return the factory, not the instance returned by the factory.
+	 * @see #FACTORY_BEAN_PREFIX_CHAR
+	 */
+	String FACTORY_BEAN_PREFIX = "&";
+
+	/**
+	 * Character variant of {@link #FACTORY_BEAN_PREFIX}.
+	 * @since 6.2.6
+	 */
+	char FACTORY_BEAN_PREFIX_CHAR = '&';
+
+
+-------------------------------------------------------------------------------
+FRAGMENTO 2: Método de Fábrica Principal (Búsqueda por Identificador/Nombre)
+Líneas de Referencia: 141-146
+-------------------------------------------------------------------------------
+/*
+ * Constituye la firma base del Factory Method clásico de GoF. Recibe el identificador
+ * textual del bean y delega la resolución a la implementación concreta del contenedor
+ * (como DefaultListableBeanFactory). El método oculta si el objeto retornado es una
+ * instancia compartida en memoria (Singleton) o una nueva instancia recién creada (Prototype).
+ */
+	/**
+	 * Return an instance, which may be shared or independent, of the specified bean.
+	 * <p>This method allows a Spring BeanFactory to be used as a replacement for the
+	 * Singleton or Prototype design pattern. Callers may retain references to
+	 * returned objects in the case of Singleton beans.
+	 * <p>Translates aliases back to the corresponding canonical bean name.
+	 * <p>Will ask the parent factory if the bean cannot be found in this factory instance.
+	 * @param name the name of the bean to retrieve
+	 * @return an instance of the bean.
+	 * @throws NoSuchBeanDefinitionException if there is no bean with the specified name
+	 * @throws BeansException if the bean could not be obtained
+	 */
+	Object getBean(String name) throws BeansException;
+
+
+-------------------------------------------------------------------------------
+FRAGMENTO 3: Método de Fábrica con Seguridad de Tipos (Type-Safe Lookup)
+Líneas de Referencia: 158-177
+-------------------------------------------------------------------------------
+/*
+ * Evolución del Factory Method adaptada a Java con Genéricos (<T>). Al exigir el
+ * parámetro 'Class<T> requiredType', el framework valida en tiempo de ejecución que
+ * la instancia creada sea asignable al tipo solicitado, evitando la necesidad de
+ * conversiones explícitas (castings manuales) en el cliente y previniendo errores
+ * de tipo ClassCastException en tiempo de ejecución.
+ */
+	/**
+	 * Return an instance, which may be shared or independent, of the specified bean.
+	 * <p>Behaves the same as {@link #getBean(String)}, but provides a measure of type
+	 * safety by throwing a BeanNotOfRequiredTypeException if the bean is not of the
+	 * required type. This means that ClassCastException can't be thrown on casting
+	 * the result correctly, as can happen with {@link #getBean(String)}.
+	 * @param name the name of the bean to retrieve
+	 * @param requiredType type the bean must match; can be an interface or superclass
+	 * @return an instance of the bean.
+	 * @throws NoSuchBeanDefinitionException if there is no such bean definition
+	 * @throws BeanNotOfRequiredTypeException if the bean is not of the required type
+	 * @throws BeansException if the bean could not be created
+	 */
+	<T> T getBean(String name, Class<T> requiredType) throws BeansException;
+
+
+-------------------------------------------------------------------------------
+FRAGMENTO 4: Método de Fábrica Directo por Tipo (By-Type Lookup)
+Líneas de Referencia: 220-234
+-------------------------------------------------------------------------------
+/*
+ * Aplica el principio de Inversión de Dependencias (DIP) en su máxima expresión.
+ * El cliente no necesita conocer el identificador textual de la clase, sino
+ * únicamente la interfaz o superclase que requiere ('Class<T> requiredType').
+ * La fábrica analiza el contenedor, busca la implementación única que satisfaga
+ * dicho contrato y la instancia o recupera automáticamente.
+ */
+	/**
+	 * Return the bean instance that uniquely matches the given object type, if any.
+	 * <p>This method goes into {@link ListableBeanFactory} by-type lookup territory
+	 * but may also be translated into a conventional by-name lookup based on the name
+	 * of the given type.
+	 * @param requiredType type the bean must match; can be an interface or superclass
+	 * @return an instance of the single bean matching the required type
+	 * @throws NoSuchBeanDefinitionException if no bean of the given type was found
+	 * @throws NoUniqueBeanDefinitionException if more than one bean of the given type was found
+	 * @throws BeansException if the bean could not be created
+	 * @since 3.0
+	 */
+	<T> T getBean(Class<T> requiredType) throws BeansException;
+
+}
